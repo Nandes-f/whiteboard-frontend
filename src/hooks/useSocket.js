@@ -19,7 +19,7 @@ const useSocket = (roomId, userId, userName, userRole) => {
     setEffectiveRole(role);
     
     
-    const socket = io(process.env.REACT_APP_SOCKET_URL || 'http://46.250.220.230:9999', {
+    const socket = io(process.env.REACT_APP_SOCKET_URL || 'https://46.250.220.230:9999', {
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
