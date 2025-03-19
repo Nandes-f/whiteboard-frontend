@@ -24,7 +24,12 @@ const useSocket = (roomId, userId, userName, userRole) => {
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
       forceNew: true,
-      transports: ['websocket', 'polling'],
+      transports: ['websocket'], // Force WebSocket transport only
+      extraHeaders: {
+        'ngrok-skip-browser-warning': 'true' // Bypass ngrok warning
+      },
+      secure: true, // Enable secure connection
+      rejectUnauthorized: false, // For self-signed certificates
       query: {
         roomId,
         userId,
