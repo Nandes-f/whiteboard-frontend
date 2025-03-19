@@ -19,17 +19,12 @@ const useSocket = (roomId, userId, userName, userRole) => {
     setEffectiveRole(role);
     
     
-    const socket = io(process.env.REACT_APP_SOCKET_URL || 'https://04c9-82-223-120-180.ngrok-free.app', {
+    const socket = io(process.env.REACT_APP_SOCKET_URL || 'https://2de8-82-223-120-180.ngrok-free.app', {
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
       forceNew: true,
-      transports: ['websocket'], // Force WebSocket transport only
-      extraHeaders: {
-        'ngrok-skip-browser-warning': 'true' // Bypass ngrok warning
-      },
-      secure: true, // Enable secure connection
-      rejectUnauthorized: false, // For self-signed certificates
+      transports: ['websocket', 'polling'],
       query: {
         roomId,
         userId,
