@@ -9,7 +9,6 @@ function App() {
   const [userId, setUserId] = useState('');
   
   useEffect(() => {
-    // Generate a unique user ID if not already set
     const storedUserId = localStorage.getItem('whiteboard_user_id');
     if (storedUserId) {
       setUserId(storedUserId);

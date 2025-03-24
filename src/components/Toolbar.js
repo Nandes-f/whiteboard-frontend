@@ -34,7 +34,7 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
         setBrushSize,
         availableTools,
         userRole,
-        darkMode // Make sure to get darkMode from context
+        darkMode 
     } = useWhiteboard();
 
     const [showColorPicker, setShowColorPicker] = useState(false);
@@ -42,21 +42,16 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
     const colorPickerRef = useRef(null);
     const toolbarRef = useRef(null);
     const fileInputRef = useRef(null);
-    // const colorButtonRef = useRef(null);
-    
-    // Add a safe clear handler to prevent the null context error
     const handleClear = () => {
         if (onClear) {
             try {
                 onClear();
             } catch (error) {
                 console.error("Error clearing canvas:", error);
-                // You might want to show a user-friendly error message here
             }
         }
     };
 
-    // Close color picker when clicking outside
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (colorPickerRef.current && !colorPickerRef.current.contains(event.target) &&
@@ -71,7 +66,6 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
         };
     }, []);
 
-    // Get icon component for a tool
     const getToolIcon = (toolName) => {
         switch (toolName) {
             case 'cursor':
@@ -104,24 +98,21 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
         }
     };
 
-    // Handle tool selection
     const handleToolChange = (newTool) => {
         if (disabled) return;
         setTool(newTool);
     };
 
-    // Handle color change
     const handleColorChange = (newColor) => {
         if (disabled) return;
         setColor(newColor.hex);
+        setShowColorPicker(false); 
     };
 
-    // Toggle color picker view between simple and advanced
     const toggleAdvancedColorPicker = () => {
         setAdvancedColorPicker(!advancedColorPicker);
     };
 
-    // Handle file upload
     const handleFileUpload = (e) => {
         if (disabled || !onUpload) return;
 
@@ -129,15 +120,10 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
         if (!file) return;
 
         onUpload(file);
-        e.target.value = null; // Reset input
+        e.target.value = null; 
     };
 
-    // Get size control based on active tool
     const renderSizeControl = () => {
-        // Don't show size control for tools that don't need it
-        // if (['select', 'text', 'equation', 'image'].includes(tool)) {
-        //     return null;
-        // }
 
         return (
             <div className="size-control">
@@ -154,28 +140,18 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
         );
     };
 
-    // Check if user has permissions to use this tool
     const canUseTools = () => {
         if (userRole === 'teacher' || userRole === 'admin') {
             return true;
         }
-        // Student can only use tools if not disabled
         return !disabled;
     };
 
-    // useEffect(() => {
-    //     if (showColorPicker && colorButtonRef.current) {
-    //         const rect = colorButtonRef.current.getBoundingClientRect();
-    //         colorPickerRef.current.style.top = `${rect.bottom + 5}px`;
-    //         colorPickerRef.current.style.left = `${rect.left}px`;
-    //     }
-    // }, [showColorPicker]);
     return (
         <div className="toolbar-container">
 
             <div className={`toolbar ${darkMode ? 'dark-mode' : ''}`} ref={toolbarRef}>
                 <div className="tool-section">
-                    {/* Tool buttons */}
                     <Tooltip content="Select" direction="bottom">
                         <button
                             className={`tool-button ${tool === 'select' ? 'active' : ''}`}
@@ -194,15 +170,6 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
                             <FaPencilAlt />
                         </button>
                     </Tooltip>
-                    {/* <Tooltip content="Pixel" direction="bottom">
-                        <button
-                            className={`tool-button ${tool === 'pixel' ? 'active' : ''}`}
-                            onClick={() => handleToolChange('pixel')}
-                            disabled={!canUseTools()}
-                        >
-                            <FaTh />
-                        </button>
-                    </Tooltip> */}
                     <Tooltip content="Eraser" direction="bottom">
                         <button
                             className={`tool-button ${tool === 'eraser' ? 'active' : ''}`}
@@ -294,11 +261,9 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
                 </div>
 
                 <div className="tool-section">
-                    {/* Color picker */}
-                    <div className="color-picker-container">
+                    <div className="color-picker-container" ref={colorPickerRef}>
                         <Tooltip content="Color" direction="bottom">
                             <button
-                                // ref={colorButtonRef}
                                 className="color-button"
                                 onClick={() => setShowColorPicker(!showColorPicker)}
                                 disabled={disabled}
@@ -307,12 +272,37 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
                             </button>
                         </Tooltip>
                         {showColorPicker && (
-                            <div className={`color-picker-dropdown ${darkMode ? 'dark-mode' : ''}`} /*ref={colorPickerRef}*/>
+                            <div className={`color-picker-dropdown ${darkMode ? 'dark-mode' : ''}`}>
                                 {renderSizeControl()}
                                 {advancedColorPicker ? (
-                                    <ChromePicker color={color} onChange={handleColorChange} />
+                                    <ChromePicker 
+                                        color={color} 
+                                        onChange={handleColorChange}
+                                        disableAlpha={true}
+                                    />
                                 ) : (
-                                    <CirclePicker color={color} onChange={handleColorChange} />
+                                    <CirclePicker 
+                                        color={color} 
+                                        onChange={handleColorChange}
+                                        colors={[
+                                            '#000000',
+                                            '#434343',
+                                            '#666666',
+                                            '#999999', 
+                                            '#B3B3B3', 
+                                            '#CCCCCC', 
+                                            '#FF0000',
+                                            '#00FF00', 
+                                            '#0000FF', 
+                                            '#FFFF00', 
+                                            '#FF00FF', 
+                                            '#00FFFF', 
+                                            '#FFA500', 
+                                            '#800080', 
+                                            '#008000', 
+                                            '#000080'  
+                                        ]}
+                                    />
                                 )}
                                 <button
                                     className="toggle-picker-button"
@@ -324,11 +314,9 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
                         )}
                     </div>
 
-                    {/* Size controls */}
                 </div>
 
                 <div className="tool-section">
-                    {/* Action buttons */}
                     <Tooltip content="Undo" direction="bottom">
                         <button
                             className="tool-button"

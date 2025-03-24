@@ -19,7 +19,6 @@ const Whiteboard = ({ userId }) => {
     const [showUsersList, setShowUsersList] = useState(false);
     const canvasRef = useRef(null);
     
-    // Get user name from localStorage or prompt
     useEffect(() => {
         const storedName = localStorage.getItem('whiteboard_user_name');
         const storedRole = localStorage.getItem('whiteboard_user_role');
@@ -30,20 +29,17 @@ const Whiteboard = ({ userId }) => {
                 setUserRole(storedRole);
             }
         } else {
-            // Only show the prompt if we don't have stored information
             setShowNamePrompt(true);
         }
     }, []);
 
-    // Always call hooks at the top level, regardless of conditions
     const { isConnected, users, emit, on, off, disconnect, effectiveRole } = useSocket(
         roomId, 
         userId, 
-        userName || '', // Provide empty string as fallback
+        userName || '', 
         userRole
     );
     
-    // Store the disconnect function for later use
     useEffect(() => {
         disconnectFunctionRef.current = disconnect;
     }, [disconnect]);
@@ -59,20 +55,16 @@ const Whiteboard = ({ userId }) => {
 
     const handleCloseRoom = () => {
         if (window.confirm('Are you sure you want to close this room? All participants will be disconnected.')) {
-            // Navigate back to home
             navigate('/');
         }
     };
 
     const handleDisconnect = () => {
         if (window.confirm('Are you sure you want to disconnect from this room?')) {
-            // First disconnect the socket if the function is available
             if (disconnectFunctionRef.current) {
                 disconnectFunctionRef.current();
                 
-                // Small delay to ensure socket disconnection completes
                 setTimeout(() => {
-                    // Navigate back to home using navigate instead of window.location
                     navigate('/');
                 }, 100);
             } else {
@@ -81,7 +73,6 @@ const Whiteboard = ({ userId }) => {
         }
     };
 
-    // Canvas action handlers
     const handleClearCanvas = () => {
         if (canvasRef.current && typeof canvasRef.current.clearCanvas === 'function') {
             canvasRef.current.clearCanvas();
@@ -120,19 +111,15 @@ const Whiteboard = ({ userId }) => {
         }
     };
 
-    // Add listener for room closure
     useEffect(() => {
         if (on) {
-            // Make sure we're listening for the correct event name
             on(EVENTS.CLOSE_ROOM, () => {
                 alert('The room has been closed by the tutor.');
                 
-                // Ensure we disconnect properly
                 if (disconnectFunctionRef.current) {
                     disconnectFunctionRef.current();
                 }
                 
-                // Force navigation to home page with replace to prevent back navigation
                 navigate('/', { replace: true });
             });
         }
@@ -144,21 +131,18 @@ const Whiteboard = ({ userId }) => {
         };
     }, [on, off, navigate]);
 
-    // Render name prompt if needed
     if (showNamePrompt) {
         return (
             <div className="name-prompt-container">
                 <div className="name-prompt">
                     <h2>Enter your information</h2>
                     <form onSubmit={handleNameSubmit}>
-                        {/* Form content remains the same */}
                     </form>
                 </div>
             </div>
         );
     }
 
-    // Main whiteboard render
     return (
         <WhiteboardProvider userId={userId} initialRole={effectiveRole || userRole}>
             <div className="whiteboard-container">
@@ -174,9 +158,7 @@ const Whiteboard = ({ userId }) => {
                             roomId={roomId} 
                             userId={userId}
                             onCloseRoom={() => {
-                                // Emit close room event to server before navigating
                                 emit(EVENTS.CLOSE_ROOM, roomId);
-                                // Small delay to ensure the event is sent before disconnecting
                                 setTimeout(() => {
                                     if (disconnectFunctionRef.current) {
                                         disconnectFunctionRef.current();
@@ -185,7 +167,6 @@ const Whiteboard = ({ userId }) => {
                                 }, 200);
                             }}
                         />
-                        {/* User list toggle button for students */}
                         {(effectiveRole || userRole) === 'student' && (
                             <button 
                                 className="users-list-button"
@@ -205,7 +186,6 @@ const Whiteboard = ({ userId }) => {
                     </div>
                 </div>
                 
-                {/* Users list popup for students */}
                 {showUsersList && (
                     <div className="users-list-popup">
                         <div className="users-list-header">

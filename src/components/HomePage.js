@@ -9,15 +9,12 @@ const HomePage = ({ userId }) => {
   const [userName, setUserName] = useState('');
   const [userRole, setUserRole] = useState('student');
   const [roomIdToJoin, setRoomIdToJoin] = useState('');
-  const [action, setAction] = useState(''); // 'create' or 'join'
+  const [action, setAction] = useState(''); 
 
-  // Check if user name is already stored, but don't automatically use the stored role
   useEffect(() => {
     const storedName = localStorage.getItem('whiteboard_user_name');
     if (storedName) {
       setUserName(storedName);
-      // We intentionally don't set the role from localStorage here
-      // so the user can choose a different role for each session
     }
   }, []);
 
@@ -34,16 +31,13 @@ const HomePage = ({ userId }) => {
   const handleNameSubmit = (e) => {
     e.preventDefault();
     if (userName.trim()) {
-      // Save user info to localStorage
       localStorage.setItem('whiteboard_user_name', userName);
       localStorage.setItem('whiteboard_user_role', userRole);
 
       if (action === 'create') {
-        // Create a new room
         const roomId = uuidv4().substring(0, 8);
         navigate(`/room/${roomId}`);
       } else if (action === 'join') {
-        // Join existing room
         if (roomIdToJoin.trim()) {
           navigate(`/room/${roomIdToJoin.trim()}`);
         }
@@ -51,7 +45,6 @@ const HomePage = ({ userId }) => {
     }
   };
 
-  // If showing name prompt, render the form
   if (showNamePrompt) {
     return (
       <div className="home-container">
@@ -127,7 +120,6 @@ const HomePage = ({ userId }) => {
     );
   }
 
-  // Main homepage view
   return (
     <div className="home-container">
       <div className="home-content">

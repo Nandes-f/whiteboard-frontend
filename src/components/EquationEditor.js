@@ -10,7 +10,6 @@ const EquationEditor = ({ position, onSubmit, onClose }) => {
   const textareaRef = useRef(null);
   const editorRef = useRef(null);
   
-  // Keep editor within viewport bounds
   useEffect(() => {
     if (editorRef.current) {
       const rect = editorRef.current.getBoundingClientRect();
@@ -20,12 +19,10 @@ const EquationEditor = ({ position, onSubmit, onClose }) => {
       let left = position.x;
       let top = position.y;
       
-      // Adjust horizontal position
       if (left + rect.width > windowWidth - 20) {
         left = windowWidth - rect.width - 20;
       }
       
-      // Adjust vertical position
       if (top + rect.height > windowHeight - 20) {
         top = windowHeight - rect.height - 20;
       }
@@ -35,14 +32,12 @@ const EquationEditor = ({ position, onSubmit, onClose }) => {
     }
   }, [position]);
   
-  // Focus textarea on mount
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.focus();
     }
   }, []);
   
-  // Render preview with KaTeX
   useEffect(() => {
     if (!previewRef.current) return;
     
@@ -54,7 +49,6 @@ const EquationEditor = ({ position, onSubmit, onClose }) => {
       setError(null);
     } catch (err) {
       setError(err.message);
-      // Still render as much as possible even with errors
       try {
         katex.render(equation || '\\text{Preview}', previewRef.current, {
           throwOnError: false,
@@ -66,7 +60,6 @@ const EquationEditor = ({ position, onSubmit, onClose }) => {
     }
   }, [equation]);
   
-  // Handle form submission
   const handleSubmit = (e) => {
     e.preventDefault();
     if (equation.trim()) {
@@ -76,7 +69,6 @@ const EquationEditor = ({ position, onSubmit, onClose }) => {
     }
   };
 
-  // Insert symbol at cursor position
   const insertSymbol = (symbol) => {
     if (!textareaRef.current) return;
     
@@ -87,14 +79,12 @@ const EquationEditor = ({ position, onSubmit, onClose }) => {
     
     setEquation(newEquation);
     
-    // Set cursor position after the inserted symbol
     setTimeout(() => {
       textarea.focus();
       textarea.selectionStart = textarea.selectionEnd = start + symbol.length;
     }, 0);
   };
   
-  // Handle keyboard shortcuts
   const handleKeyDown = (e) => {
     if (e.key === 'Tab') {
       e.preventDefault();
@@ -108,7 +98,6 @@ const EquationEditor = ({ position, onSubmit, onClose }) => {
     }
   };
 
-  // Common math symbols to display in editor
   const symbolGroups = [
     {
       title: 'Format',
@@ -316,7 +305,6 @@ const EquationEditor = ({ position, onSubmit, onClose }) => {
     },
   ];
   
-  // Render each symbol group with a set of buttons
   const renderSymbolGroups = () => {
     return symbolGroups.map((group, index) => (
       <div key={index} className="symbol-group">

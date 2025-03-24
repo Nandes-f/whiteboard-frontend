@@ -5,18 +5,15 @@
   flex-direction: column;
   background-color: #f5f5f5;
 }
-/* width */
 ::-webkit-scrollbar {
   width: 3px;
 }
 
-/* Track */
 ::-webkit-scrollbar-track {
   box-shadow: inset 0 0 5px grey;
   border-radius: 10px;
 }
 
-/* Handle */
 ::-webkit-scrollbar-thumb {
   background: rgba(75, 69, 69, 0.336);
   border-radius: 10px;
@@ -131,7 +128,6 @@
   box-shadow: 0 6px 10px rgba(76, 175, 80, 0.2);
 }
 
-/* Form styles */
 .user-info-form {
   display: flex;
   flex-direction: column;
@@ -313,7 +309,6 @@
   box-shadow: 0 4px 6px rgba(239, 68, 68, 0.3);
 }
 
-/* Dark mode styles for header */
 .dark-mode .whiteboard-header {
   background-color: #1e293b;
   border-bottom-color: #334155;
@@ -424,7 +419,6 @@
   z-index: 1000;
 }
 
-/* Update your existing equation editor styles with these enhanced ones */
 .equation-editor {
   position: absolute;
   background-color: white;
@@ -504,7 +498,6 @@
   outline: none;
 }
 
-/* Update symbol group styling for better organization */
 .symbol-groups {
   display: flex;
   flex-wrap: wrap;
@@ -583,12 +576,10 @@
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
 }
 
-/* Special styling for wider buttons (like matrices) */
 .symbol-button.wide {
   min-width: 75px;
 }
 
-/* Add tab navigation hint */
 .equation-help {
   margin: 12px 0 18px;
   font-size: 0.85rem;
@@ -652,7 +643,6 @@
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
 }
 
-/* Dark mode styles for equation editor */
 .dark-mode .equation-editor {
   background-color: #2d2d2d;
   border-color: #444;
@@ -753,7 +743,6 @@
   background-color: #4a4a4a;
 }
 
-/* Header controls styling to match the images */
 .whiteboard-controls {
   display: flex;
   flex-direction: row;
@@ -789,7 +778,6 @@
   background-color: #d32f2f;
 }
 
-/* Ensure equation editor styles don't affect header controls */
 .equation-editor .toolbar-button {
   background: #f0f0f0;
   border: 1px solid #ddd;
@@ -802,7 +790,6 @@
   background: #e0e0e0;
 }
 
-/* Users list popup */
 .users-list-popup {
   position: absolute;
   top: 60px;
@@ -908,8 +895,7 @@
   color: #fff;
 }
 
-/* Enhanced styles for landing page, create room and join room pages */
-/* TutorControls styling */
+
 .tutor-controls {
   position: relative;
   display: flex;
@@ -999,7 +985,6 @@
   background-color: rgba(239, 68, 68, 0.2);
 }
 
-/* Dark mode styles */
 .dark-mode .student-controls-panel {
   background-color: #1e293b;
   border-color: #334155;

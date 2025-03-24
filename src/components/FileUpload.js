@@ -14,7 +14,6 @@ const FileUpload = ({ onUpload, onClose, acceptedTypes = 'image/*,.pdf' }) => {
       return;
     }
     
-    // Check file type
     const fileType = selectedFile.type;
     if (fileType.startsWith('image/') || fileType === 'application/pdf') {
       setFile(selectedFile);
@@ -34,7 +33,6 @@ const FileUpload = ({ onUpload, onClose, acceptedTypes = 'image/*,.pdf' }) => {
     setLoading(true);
     
     try {
-      // Read file as data URL
       const reader = new FileReader();
       
       reader.onload = (e) => {

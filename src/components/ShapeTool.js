@@ -16,7 +16,6 @@ const ShapeTool = ({ canvas, type }) => {
       setStartPoint({ x: pointer.x, y: pointer.y });
       setIsDrawing(true);
       
-      // Create temporary shape based on type
       let shape;
       
       switch (type) {
@@ -54,7 +53,6 @@ const ShapeTool = ({ canvas, type }) => {
           });
           break;
         case 'arrow':
-          // For arrow, we'll use a line for now and convert to arrow on mouse up
           shape = new fabric.Line([pointer.x, pointer.y, pointer.x, pointer.y], {
             stroke: color,
             strokeWidth: brushSize,
@@ -121,12 +119,10 @@ const ShapeTool = ({ canvas, type }) => {
     const handleMouseUp = () => {
       if (!isDrawing || !shapeRef.current) return;
       
-      // If it's an arrow, convert the line to an arrow
       if (type === 'arrow') {
         const line = shapeRef.current;
         const angle = Math.atan2(line.y2 - line.y1, line.x2 - line.x1);
         
-        // Create arrow head
         const headSize = brushSize * 5;
         const triangle = new fabric.Triangle({
           left: line.x2,
@@ -138,10 +134,8 @@ const ShapeTool = ({ canvas, type }) => {
           fill: color
         });
         
-        // Remove the temporary line
         canvas.remove(line);
         
-        // Create a new group with line and arrow head
         const arrow = new fabric.Group([
           new fabric.Line([line.x1, line.y1, line.x2, line.y2], {
             stroke: color,
@@ -153,7 +147,6 @@ const ShapeTool = ({ canvas, type }) => {
         canvas.add(arrow);
       }
       
-      // Make the shape selectable again
       shapeRef.current.set({
         selectable: true,
         evented: true
@@ -164,12 +157,10 @@ const ShapeTool = ({ canvas, type }) => {
       shapeRef.current = null;
     };
     
-    // Add event listeners
     canvas.on('mouse:down', handleMouseDown);
     canvas.on('mouse:move', handleMouseMove);
     canvas.on('mouse:up', handleMouseUp);
     
-    // Clean up
     return () => {
       canvas.off('mouse:down', handleMouseDown);
       canvas.off('mouse:move', handleMouseMove);
@@ -177,7 +168,7 @@ const ShapeTool = ({ canvas, type }) => {
     };
   }, [canvas, type, color, brushSize, isDrawing, startPoint]);
   
-  return null; // This is a functional component with no UI
+  return null; 
 };
 
 export default ShapeTool;

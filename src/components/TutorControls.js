@@ -9,9 +9,7 @@ const TutorControls = ({ users, emit, roomId, userId, onCloseRoom }) => {
   const [copySuccess, setCopySuccess] = useState('');
   const [studentsStatus, setStudentsStatus] = useState({});
   
-  // Initialize student status tracking - moved before the conditional return
   useEffect(() => {
-    // Only process if user is a tutor
     if (userRole === 'tutor') {
       const initialStatus = {};
       users.forEach(user => {
@@ -23,47 +21,76 @@ const TutorControls = ({ users, emit, roomId, userId, onCloseRoom }) => {
     }
   }, [users, userRole]);
   
-  // Only show for tutors
   if (userRole !== 'tutor') return null;
   
   const toggleStudentPermission = (studentId, currentlyBlocked) => {
-    // Update local state first for immediate feedback
     setStudentsStatus(prev => ({
       ...prev,
       [studentId]: !currentlyBlocked
     }));
     
-    // Then emit to server - make sure we're only toggling for the specific student
     emit(EVENTS.TOGGLE_STUDENT_PERMISSION, {
       roomId,
       studentId,
-      isAllowed: !currentlyBlocked  // isAllowed true means "blocked"
+      isAllowed: !currentlyBlocked  
     });
     
   };
   
   const copyRoomId = () => {
-    navigator.clipboard.writeText(roomId)
-      .then(() => {
-        setCopySuccess('Copied!');
-        setTimeout(() => setCopySuccess(''), 2000);
-      })
-      .catch(err => {
-      });
+    const textarea = document.createElement('textarea');
+    textarea.value = roomId;
+    textarea.style.position = 'fixed'; 
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(roomId)
+          .then(() => {
+            setCopySuccess('Copied!');
+            setTimeout(() => setCopySuccess(''), 2000);
+          })
+          .catch(() => {
+            fallbackCopyToClipboard();
+          });
+      } else {
+        fallbackCopyToClipboard();
+      }
+    } catch (err) {
+      alert(`Room ID: ${roomId}`);
+    } finally {
+      document.body.removeChild(textarea);
+    }
   };
   
-  // Filter to only show students
+  const fallbackCopyToClipboard = () => {
+    const textarea = document.createElement('textarea');
+    textarea.value = roomId;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    
+    try {
+      textarea.select();
+      document.execCommand('copy');
+      setCopySuccess('Copied!');
+      setTimeout(() => setCopySuccess(''), 2000);
+    } catch (err) {
+      alert(`Room ID: ${roomId}`);
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  };
+  
   const students = users.filter(user => user.role === 'student');
   
   const handleCloseRoom = () => {
     if (window.confirm('Are you sure you want to close this room? All participants will be disconnected.')) {
       
-      // First emit the close room event to the server
       emit(EVENTS.CLOSE_ROOM, roomId);
       
-      // Add a small delay to ensure the event is sent before navigating
       setTimeout(() => {
-        // Call the parent component's onCloseRoom handler
         if (onCloseRoom) onCloseRoom();
       }, 300);
     }
@@ -102,7 +129,6 @@ const TutorControls = ({ users, emit, roomId, userId, onCloseRoom }) => {
           <h3>Student Controls</h3>
           <ul className="student-list">
             {students.map(student => {
-              // Use our local state or fallback to the user object
               const isBlocked = studentsStatus[student.id] !== undefined 
                 ? studentsStatus[student.id] 
                 : (student.isBlocked || false);

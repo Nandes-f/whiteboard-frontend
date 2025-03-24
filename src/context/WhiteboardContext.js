@@ -17,7 +17,6 @@ export const WhiteboardProvider = ({ children, userId, initialRole }) => {
   const [isActionBlocked, setIsActionBlocked] = useState(false);
   const [viewMode, setViewMode] = useState('normal');
 
-  // Available tools
   const availableTools = [
     { name: 'select', icon: 'mouse-pointer' },
     { name: 'pen', icon: 'pencil-alt' },
@@ -32,8 +31,6 @@ export const WhiteboardProvider = ({ children, userId, initialRole }) => {
     { name: 'laser', icon: 'dot-circle' },
     { name: 'image', icon: 'image' }
   ];
-
-  // Load preferences from localStorage
   useEffect(() => {
     const savedDarkMode = localStorage.getItem('whiteboard_dark_mode');
     if (savedDarkMode) {
@@ -50,10 +47,8 @@ export const WhiteboardProvider = ({ children, userId, initialRole }) => {
       setBrushSize(parseInt(savedBrushSize, 10));
     }
     
-    // We're now setting the role in the useState initialization above
   }, []);
 
-  // Save preferences to localStorage
   useEffect(() => {
     localStorage.setItem('whiteboard_dark_mode', darkMode);
     localStorage.setItem('whiteboard_color', color);
@@ -61,7 +56,6 @@ export const WhiteboardProvider = ({ children, userId, initialRole }) => {
     localStorage.setItem('whiteboard_user_role', userRole);
   }, [darkMode, color, brushSize, userRole]);
 
-  // Apply dark mode to body
   useEffect(() => {
     if (darkMode) {
       document.body.classList.add('dark-mode');
@@ -71,7 +65,6 @@ export const WhiteboardProvider = ({ children, userId, initialRole }) => {
   }, [darkMode]);
 
   const addToHistory = (objects) => {
-    // Remove any forward history if we're not at the end
     const newHistory = history.slice(0, historyIndex + 1);
     newHistory.push(objects);
     setHistory(newHistory);
@@ -94,27 +87,22 @@ export const WhiteboardProvider = ({ children, userId, initialRole }) => {
     return null;
   };
 
-  // Handle tool selection
   const handleToolChange = (newTool) => {
     setTool(newTool);
   };
 
-  // Handle color change
   const handleColorChange = (newColor) => {
     setColor(newColor);
   };
 
-  // Handle brush size change
   const handleBrushSizeChange = (newSize) => {
     setBrushSize(newSize);
   };
 
-  // Handle view mode change
   const handleViewModeChange = (newMode) => {
     setViewMode(newMode);
   };
 
-  // Update the value object to include the new function
   const value = {
     tool,
     setTool: handleToolChange,

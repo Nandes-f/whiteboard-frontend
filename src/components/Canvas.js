@@ -91,7 +91,15 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
         canvas.freeDrawingBrush = eraserBrush;
         canvas.defaultCursor = 'none';
 
-        const outerCircle = new fabric.Circle({
+        const existingCursors = canvas.getObjects().filter(obj =>
+            obj.excludeFromExport === true && obj.eraserCursor === true
+        );
+
+        if (existingCursors.length > 0) {
+            existingCursors.forEach(cursor => canvas.remove(cursor));
+        }
+
+        let eraserCursor = new fabric.Circle({
             radius: brushSize / 2,
             fill: 'rgba(255,255,255,0.2)',
             stroke: 'rgba(0,0,0,0.5)',
@@ -105,12 +113,11 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
             evented: false,
             excludeFromExport: true,
             hoverCursor: 'none',
-            objectCaching: false
+            eraserCursor: true,
+            visible: true
         });
 
-        canvas.add(outerCircle);
-
-        // ... [Keep cursor position handlers the same] ...
+        canvas.add(eraserCursor);
 
         const handlePathCreated = (e) => {
             if (tool !== 'eraser') return;
@@ -118,8 +125,10 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
             const eraserPath = e.path;
             canvas.remove(eraserPath);
 
+            let modifiedObjects = [];
+
             canvas.getObjects().forEach(obj => {
-                if (obj === outerCircle || obj.temporary || obj.excludeFromExport) return;
+                if (obj === eraserCursor || obj.temporary || obj.excludeFromExport) return;
 
                 try {
                     const clipPath = new fabric.Path(eraserPath.path, {
@@ -127,17 +136,17 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                         absolutePositioned: true
                     });
 
-                    // Convert existing clipPath to array if needed
                     const currentClipPaths = obj.clipPath ?
                         (Array.isArray(obj.clipPath) ? obj.clipPath : [obj.clipPath]) :
                         [];
 
                     obj.clipPath = [
                         ...currentClipPaths,
-                        clipPath.toObject() // Store as plain object
+                        clipPath.toObject()
                     ];
 
                     obj.dirty = true;
+                    modifiedObjects.push(obj);
                 } catch (error) {
                     console.error('Error applying eraser:', error);
                 }
@@ -145,16 +154,27 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
 
             canvas.renderAll();
 
-            if (isConnected) {
-                canvas.getObjects().forEach(obj => {
-                    if (obj.id && obj !== outerCircle) {
-                        // Clone object and convert clipPaths to serializable format
+            if (isConnected && modifiedObjects.length > 0) {
+                modifiedObjects.forEach(obj => {
+                    if (obj.id) {
                         const objData = obj.toObject(['id', 'ownerId']);
                         if (objData.clipPath) {
+                            objData.clipPath = Array.isArray(objData.clipPath)
+                                ? objData.clipPath
+                                : [objData.clipPath];
+
                             objData.clipPath = objData.clipPath.map(path =>
                                 typeof path.toObject === 'function' ? path.toObject() : path
                             );
                         }
+
+                        if (obj.type) objData.type = obj.type;
+                        if (obj.path) objData.path = obj.path;
+                        objData.left = obj.left;
+                        objData.top = obj.top;
+                        objData.scaleX = obj.scaleX;
+                        objData.scaleY = obj.scaleY;
+                        objData.angle = obj.angle || 0;
 
                         emit(EVENTS.DRAW_ACTION, createDrawAction(
                             DRAW_ACTIONS.MODIFY_OBJECT,
@@ -170,7 +190,49 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
             }
         };
 
-        // ... [Rest of setupEraserTool remains the same] ...
+        const handleMouseMove = (e) => {
+            const pointer = canvas.getPointer(e.e);
+            eraserCursor.set({
+                left: pointer.x,
+                top: pointer.y,
+                visible: true
+            });
+            canvas.requestRenderAll();
+        };
+
+        const canvasContainer = document.querySelector('.canvas-container');
+        if (canvasContainer) {
+            canvasContainer.addEventListener('mouseleave', () => {
+                eraserCursor.set({ visible: false });
+                canvas.requestRenderAll();
+            });
+
+            canvasContainer.addEventListener('mouseenter', () => {
+                eraserCursor.set({ visible: true });
+                canvas.requestRenderAll();
+            });
+        }
+
+        canvas.on('path:created', handlePathCreated);
+        canvas.on('mouse:move', handleMouseMove);
+        canvas.on('mouse:down', handleMouseMove);
+        canvas.on('mouse:up', handleMouseMove);
+
+        return () => {
+            canvas.off('path:created', handlePathCreated);
+            canvas.off('mouse:move', handleMouseMove);
+            canvas.off('mouse:down', handleMouseMove);
+            canvas.off('mouse:up', handleMouseMove);
+
+            if (canvasContainer) {
+                canvasContainer.removeEventListener('mouseleave', () => { });
+                canvasContainer.removeEventListener('mouseenter', () => { });
+            }
+
+            if (eraserCursor && eraserCursor.canvas) {
+                canvas.remove(eraserCursor);
+            }
+        };
     }, [brushSize, tool, isConnected, emit, userId, roomId]);
 
     useEffect(() => {
@@ -178,7 +240,10 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
             isDrawingMode: false,
             selection: true,
             width: window.innerWidth - 60,
-            height: window.innerHeight - 60
+            height: window.innerHeight - 60,
+            perPixelTargetFind: false,
+            targetFindTolerance: 0,
+            skipTargetFind: true
         });
 
         canvas.userId = userId;
@@ -316,6 +381,27 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
         };
     }, [isConnected, emit, on, off, roomId, userId, userRole]);
 
+    const applyPermissions = (obj) => {
+        if (isActionBlocked) {
+            obj.selectable = false;
+            obj.evented = false;
+            obj.lockMovementX = true;
+            obj.lockMovementY = true;
+            obj.lockRotation = true;
+            obj.lockScalingX = true;
+            obj.lockScalingY = true;
+            return;
+        }
+
+        obj.selectable = true;
+        obj.evented = true;
+        obj.lockMovementX = false;
+        obj.lockMovementY = false;
+        obj.lockRotation = false;
+        obj.lockScalingX = false;
+        obj.lockScalingY = false;
+    };
+
     const handleRemoteDrawAction = (action) => {
         const canvas = fabricCanvasRef.current;
         if (!canvas) return;
@@ -329,11 +415,9 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                 case DRAW_ACTIONS.ADD_OBJECT:
                     if (action.data && action.data.json) {
                         const objectId = action.data.json.id;
+
                         if (processedObjects.current.has(objectId)) {
-                            break;
-                        }
-                        if (objectId && processedObjects.current.has(objectId)) {
-                            break;
+                            return;
                         }
 
                         const existingObj = canvas.getObjects().find(obj => obj.id === objectId);
@@ -342,7 +426,7 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                             processedObjects.current.delete(objectId);
                         }
 
-                        if (action.data.json.type === 'image' || action.data.json.type === 'pdf-page') {
+                        if (action.data.json.type === 'equation') {
                             fabric.Image.fromURL(action.data.json.src, (img) => {
                                 if (!img) return;
 
@@ -351,18 +435,39 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                                     ownerId: action.userId,
                                     selectable: true,
                                     evented: true,
-                                    crossOrigin: 'anonymous',
-                                    id: objectId
+                                    crossOrigin: 'anonymous'
                                 });
 
                                 canvas.add(img);
                                 processedObjects.current.add(objectId);
                                 applyPermissions(img);
                                 canvas.renderAll();
+
+                                if (isConnected) {
+                                    const objectJSON = {
+                                        ...img.toJSON(['id', 'ownerId', 'type', 'equation', 'color']),
+                                        src: action.data.json.src,
+                                        left: img.left,
+                                        top: img.top,
+                                        scaleX: img.scaleX,
+                                        scaleY: img.scaleY,
+                                        angle: img.angle || 0,
+                                        equation: action.data.json.equation,
+                                        color: action.data.json.color
+                                    };
+
+                                    emit(EVENTS.DRAW_ACTION, createDrawAction(
+                                        DRAW_ACTIONS.ADD_OBJECT,
+                                        { json: objectJSON },
+                                        userId,
+                                        roomId
+                                    ));
+                                }
                             }, { crossOrigin: 'anonymous' });
                         } else {
                             fabric.util.enlivenObjects([action.data.json], (objects) => {
                                 objects.forEach(obj => {
+                                    obj._skipObjectAdded = true;
                                     obj.set({
                                         ownerId: action.userId,
                                         selectable: true,
@@ -371,11 +476,11 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                                     });
 
                                     canvas.add(obj);
-                                    processedObjects.current.add(obj.id);
+                                    processedObjects.current.add(objectId);
                                     applyPermissions(obj);
                                 });
 
-                                canvas.renderAll();
+                                canvas.requestRenderAll();
                             });
                         }
                     }
@@ -383,22 +488,27 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
 
                 case DRAW_ACTIONS.MODIFY_OBJECT:
                     if (action.data && action.data.objectId && action.data.json) {
-                        const object = canvas.getObjects().find(obj => obj.id === action.data.objectId);
-                        if (object) {
-                            const originalOwnerId = object.ownerId;
-                            const originalId = object.id;
-                            const originalType = object.type;
+                        const existingObj = canvas.getObjects().find(obj => obj.id === action.data.objectId);
+                        if (existingObj) {
+                            isRemoteAction.current = true;
+                            try {
+                                existingObj.set({
+                                    left: action.data.json.left,
+                                    top: action.data.json.top,
+                                    scaleX: action.data.json.scaleX,
+                                    scaleY: action.data.json.scaleY,
+                                    angle: action.data.json.angle || 0
+                                });
 
-                            object.set(action.data.json);
+                                if (action.data.json.path) {
+                                    existingObj.set('path', action.data.json.path);
+                                }
 
-                            object.set({
-                                ownerId: originalOwnerId,
-                                id: originalId,
-                                type: originalType
-                            });
-
-                            object.setCoords();
-                            canvas.renderAll();
+                                existingObj.setCoords();
+                                canvas.requestRenderAll();
+                            } finally {
+                                isRemoteAction.current = false;
+                            }
                         }
                     }
                     break;
@@ -409,7 +519,7 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                         if (object) {
                             canvas.remove(object);
                             processedObjects.current.delete(action.data.objectId);
-                            canvas.renderAll();
+                            canvas.requestRenderAll();
                         }
                     }
                     break;
@@ -417,49 +527,15 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                 case DRAW_ACTIONS.CLEAR:
                     canvas.clear();
                     processedObjects.current.clear();
-                    canvas.renderAll();
+                    canvas.requestRenderAll();
                     break;
 
                 default:
             }
         } catch (error) {
+            console.error('Error in handleRemoteDrawAction:', error);
         } finally {
             isRemoteAction.current = false;
-        }
-    };
-
-    const applyPermissions = (obj) => {
-        obj.selectable = false;
-        obj.evented = false;
-        obj.lockMovementX = true;
-        obj.lockMovementY = true;
-        obj.lockRotation = true;
-        obj.lockScalingX = true;
-        obj.lockScalingY = true;
-
-        if (isActionBlocked) {
-            obj.selectable = false;
-            obj.evented = false;
-            return;
-        }
-
-        obj.selectable = true;
-        obj.evented = true;
-
-        if (userRole === 'tutor' || obj.ownerId === userId) {
-            obj.selectable = true;
-            obj.evented = true;
-            obj.lockMovementX = false;
-            obj.lockMovementY = false;
-            obj.lockRotation = false;
-            obj.lockScalingX = false;
-            obj.lockScalingY = false;
-        } else {
-            obj.lockMovementX = true;
-            obj.lockMovementY = true;
-            obj.lockRotation = true;
-            obj.lockScalingX = true;
-            obj.lockScalingY = true;
         }
     };
 
@@ -469,9 +545,18 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
         const canvas = fabricCanvasRef.current;
         if (!canvas) return;
 
-        const { x, y, color } = data.position;
+        const existingPointers = canvas.getObjects().filter(obj =>
+            obj.temporary === true &&
+            obj.userId === data.userId &&
+            obj.isLaserPointer === true
+        );
 
-        const pointer = new fabric.Circle({
+        if (existingPointers.length > 0) {
+            existingPointers.forEach(pointer => canvas.remove(pointer));
+        }
+
+        const { x, y, color } = data.position;
+        const remotePointer = new fabric.Circle({
             left: x - 5,
             top: y - 5,
             radius: 5,
@@ -481,30 +566,33 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
             evented: false,
             originX: 'center',
             originY: 'center',
-            temporary: true
+            temporary: true,
+            isLaserPointer: true,
+            userId: data.userId
         });
 
-        canvas.add(pointer);
+        canvas.add(remotePointer);
 
         setTimeout(() => {
-            if (pointer && pointer.canvas) {
-                canvas.remove(pointer);
+            if (remotePointer && remotePointer.canvas) {
+                canvas.remove(remotePointer);
                 canvas.renderAll();
             }
         }, 100);
 
         canvas.renderAll();
     };
+
     useEffect(() => {
         const canvas = fabricCanvasRef.current;
         if (!canvas) return;
-    
+
         canvas.getObjects().forEach(obj => {
             applyPermissions(obj);
         });
         canvas.renderAll();
     }, [isActionBlocked]);
-    
+
     useEffect(() => {
         const canvas = fabricCanvasRef.current;
         if (!canvas) return;
@@ -800,25 +888,27 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                 let lastPosition = { x: 0, y: 0 };
 
                 const throttledEmit = throttle((x, y) => {
-                    try {
-                        if (isActionBlocked || !isConnected) return;
+                    if (isActionBlocked || !isConnected) return;
 
-                        const dx = x - lastPosition.x;
-                        const dy = y - lastPosition.y;
-                        const distanceSquared = dx * dx + dy * dy;
+                    const dx = x - lastPosition.x;
+                    const dy = y - lastPosition.y;
+                    const distanceSquared = dx * dx + dy * dy;
 
-                        if (distanceSquared > 25) {
-                            lastPosition = { x, y };
+                    if (distanceSquared > 25) {
+                        lastPosition = { x, y };
 
-                            emit(EVENTS.CURSOR_POSITION, {
-                                roomId,
-                                userId,
-                                position: { x, y, color: safeColor }
-                            });
-                        }
-                    } catch (error) {
+                        emit(EVENTS.CURSOR_POSITION, {
+                            roomId,
+                            userId,
+                            position: {
+                                x,
+                                y,
+                                color: safeColor,
+                                timestamp: Date.now()
+                            }
+                        });
                     }
-                }, 30);
+                }, 16);
 
                 canvas.on('mouse:move', (e) => {
                     try {
@@ -828,6 +918,17 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
 
                         if (laserPoint) {
                             canvas.remove(laserPoint);
+                            laserPoint = null;
+                        }
+
+                        const existingLasers = canvas.getObjects().filter(obj =>
+                            obj.temporary === true &&
+                            obj.isLaserPointer === true &&
+                            obj.ownerId === userId
+                        );
+
+                        if (existingLasers.length > 0) {
+                            existingLasers.forEach(pointer => canvas.remove(pointer));
                         }
 
                         laserPoint = new fabric.Circle({
@@ -840,11 +941,12 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                             evented: false,
                             originX: 'center',
                             originY: 'center',
-                            temporary: true
+                            temporary: true,
+                            isLaserPointer: true,
+                            ownerId: userId
                         });
 
                         canvas.add(laserPoint);
-
                         throttledEmit(pointer.x, pointer.y);
 
                         if (laserPointerTimeout.current) {
@@ -861,8 +963,55 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
 
                         canvas.renderAll();
                     } catch (error) {
+                        console.error('Error in laser pointer mouse:move:', error);
                     }
                 });
+
+                const handleRemoteCursor = (data) => {
+                    if (data.userId === userId) return;
+
+                    const canvas = fabricCanvasRef.current;
+                    if (!canvas) return;
+
+                    const existingPointers = canvas.getObjects().filter(obj =>
+                        obj.temporary === true &&
+                        obj.userId === data.userId &&
+                        obj.isLaserPointer === true
+                    );
+
+                    existingPointers.forEach(pointer => canvas.remove(pointer));
+
+                    const { x, y, color } = data.position;
+                    const remotePointer = new fabric.Circle({
+                        left: x - 5,
+                        top: y - 5,
+                        radius: 5,
+                        fill: color || '#ff0000',
+                        opacity: 0.7,
+                        selectable: false,
+                        evented: false,
+                        originX: 'center',
+                        originY: 'center',
+                        temporary: true,
+                        isLaserPointer: true,
+                        userId: data.userId
+                    });
+
+                    canvas.add(remotePointer);
+
+                    setTimeout(() => {
+                        if (remotePointer && remotePointer.canvas) {
+                            canvas.remove(remotePointer);
+                            canvas.renderAll();
+                        }
+                    }, 100);
+
+                    canvas.renderAll();
+                };
+
+                if (isConnected) {
+                    on(EVENTS.CURSOR_POSITION, handleRemoteCursor);
+                }
 
                 const canvasContainer = document.querySelector('.canvas-container');
                 if (canvasContainer) {
@@ -873,11 +1022,37 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                                 canvas.renderAll();
                                 laserPoint = null;
                             }
+
+                            const existingLasers = canvas.getObjects().filter(obj =>
+                                obj.temporary === true &&
+                                obj.isLaserPointer === true &&
+                                obj.ownerId === userId
+                            );
+
+                            if (existingLasers.length > 0) {
+                                existingLasers.forEach(pointer => canvas.remove(pointer));
+                                canvas.renderAll();
+                            }
                         } catch (error) {
+                            console.error('Error in laser pointer mouseleave:', error);
                         }
                     });
                 }
+
+                return () => {
+                    if (isConnected) {
+                        off(EVENTS.CURSOR_POSITION);
+                    }
+                    if (canvasContainer) {
+                        canvasContainer.removeEventListener('mouseleave', () => { });
+                    }
+                    if (laserPoint && laserPoint.canvas) {
+                        canvas.remove(laserPoint);
+                        canvas.renderAll();
+                    }
+                };
             } catch (error) {
+                console.error('Error setting up laser pointer:', error);
                 canvas.defaultCursor = 'default';
             }
         };
@@ -923,18 +1098,35 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                 const path = e.path;
                 if (!path) return;
 
-                const timestamp = Date.now();
-                path.id = `path_${userId}_${timestamp}_${Math.random().toString(36).substr(2, 9)}`;
-                path.ownerId = userId;
+                if (path._skipObjectAdded) return;
 
-                actionStack.current.push({
-                    type: 'draw',
-                    objectId: path.id,
-                    timestamp: timestamp,
-                    object: path.toJSON(['id', 'ownerId', 'type', 'path'])
+                const timestamp = Date.now();
+                const pathId = `path_${userId}_${timestamp}_${Math.random().toString(36).substr(2, 9)}`;
+
+                path._skipObjectAdded = true;
+
+                path.set({
+                    id: pathId,
+                    ownerId: userId,
+                    selectable: true,
+                    evented: true
                 });
 
-                const objectJSON = path.toJSON(['id', 'ownerId']);
+                processedObjects.current.add(pathId);
+
+                const objectJSON = {
+                    ...path.toJSON(['id', 'ownerId']),
+                    type: 'path',
+                    path: path.path,
+                    left: path.left,
+                    top: path.top,
+                    scaleX: path.scaleX,
+                    scaleY: path.scaleY,
+                    angle: path.angle || 0,
+                    stroke: path.stroke,
+                    strokeWidth: path.strokeWidth
+                };
+
                 emit(EVENTS.DRAW_ACTION, createDrawAction(
                     DRAW_ACTIONS.ADD_OBJECT,
                     { json: objectJSON },
@@ -943,56 +1135,115 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                 ));
             });
 
-            canvas.on('object:modified', (e) => {
-                if (isRemoteAction.current || !isConnected) return;
+            canvas.on('object:added', (e) => {
+                if (isRemoteAction.current || !isConnected || isUndoRedoAction.current) return;
 
                 const object = e.target;
-                if (userRole === 'student' && object.ownerId !== userId) return;
-                if (object.temporary === true || object.excludeFromExport === true) return;
+                if (!object ||
+                    object.temporary === true ||
+                    object.excludeFromExport === true) return;
 
-                const timestamp = Date.now();
-                actionStack.current.push({
+                if (object._skipObjectAdded) {
+                    delete object._skipObjectAdded;
+                    return;
+                }
+
+                if (object.id && processedObjects.current.has(object.id)) return;
+
+                if (object.type === 'path') return;
+
+                if (!object.id) {
+                    object.id = `obj_${userId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                    object.ownerId = userId;
+                }
+
+                processedObjects.current.add(object.id);
+
+                const action = {
+                    type: 'add',
+                    objectId: object.id,
+                    timestamp: Date.now(),
+                    object: object.toJSON(['id', 'ownerId', 'type', 'src'])
+                };
+
+                actionStack.current.push(action);
+                saveStateToStorage();
+            });
+
+            canvas.on('object:modified', (e) => {
+                if (isRemoteAction.current || !isConnected || isUndoRedoAction.current) return;
+
+                const object = e.target;
+                if (!object ||
+                    object.temporary === true ||
+                    object.excludeFromExport === true) return;
+
+                if (!object.id) return;
+
+                const objectJSON = {
+                    ...object.toObject(['id', 'ownerId']),
+                    type: object.type,
+                    path: object.path,
+                    left: object.left,
+                    top: object.top,
+                    scaleX: object.scaleX,
+                    scaleY: object.scaleY,
+                    angle: object.angle || 0
+                };
+
+                emit(EVENTS.DRAW_ACTION, createDrawAction(
+                    DRAW_ACTIONS.MODIFY_OBJECT,
+                    {
+                        objectId: object.id,
+                        json: objectJSON
+                    },
+                    userId,
+                    roomId
+                ));
+
+                const action = {
                     type: 'modify',
                     objectId: object.id,
-                    timestamp: timestamp,
-                    object: object.toJSON(['id', 'ownerId', 'type'])
-                });
+                    timestamp: Date.now(),
+                    object: object.toJSON(['id', 'ownerId', 'type', 'src']),
+                    originalState: e.originalState || object.toJSON(['id', 'ownerId', 'type', 'src'])
+                };
 
-                if (object.id) {
-                    const objectJSON = object.toJSON(['id', 'ownerId']);
-                    emit(EVENTS.DRAW_ACTION, createDrawAction(
-                        DRAW_ACTIONS.MODIFY_OBJECT,
-                        { objectId: object.id, json: objectJSON },
-                        userId,
-                        roomId
-                    ));
-                }
+                actionStack.current.push(action);
+                saveStateToStorage();
             });
 
             canvas.on('object:removed', (e) => {
-                if (isRemoteAction.current || !isConnected) return;
+                if (isRemoteAction.current || !isConnected || isUndoRedoAction.current) return;
 
                 const object = e.target;
-                if (object.temporary === true || object.excludeFromExport === true) return;
+                if (!object || object.temporary === true || object.excludeFromExport === true) return;
                 if (userRole === 'student' && object.ownerId !== userId) return;
 
-                const timestamp = Date.now();
-                actionStack.current.push({
+                const action = {
                     type: 'remove',
                     objectId: object.id,
-                    timestamp: timestamp,
-                    object: object.toJSON(['id', 'ownerId', 'type'])
-                });
+                    timestamp: Date.now(),
+                    object: object.toJSON(['id', 'ownerId', 'type', 'src'])
+                };
 
-                if (object && object.id) {
-                    emit(EVENTS.DRAW_ACTION, createDrawAction(
-                        DRAW_ACTIONS.REMOVE_OBJECT,
-                        { objectId: object.id },
-                        userId,
-                        roomId
-                    ));
+                actionStack.current.push(action);
+                saveStateToStorage();
 
+                if (object.id) {
                     processedObjects.current.delete(object.id);
+
+                    if (isConnected) {
+                        emit(EVENTS.DRAW_ACTION, createDrawAction(
+                            DRAW_ACTIONS.REMOVE_OBJECT,
+                            {
+                                objectId: object.id,
+                                actionId: action.objectId
+                            },
+                            userId,
+                            roomId
+                        ));
+                    }
                 }
             });
         };
@@ -1001,12 +1252,20 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
             cleanupDrawingListeners();
             const canvas = fabricCanvasRef.current;
             if (!canvas) return;
+
+            canvas.perPixelTargetFind = false;
+            canvas.targetFindTolerance = 0;
+            canvas.skipTargetFind = true;
+
             canvas.selection = false;
             canvas.isDrawingMode = false;
 
             switch (tool) {
                 case 'select':
                     canvas.selection = true;
+                    canvas.perPixelTargetFind = true;
+                    canvas.targetFindTolerance = 4;
+                    canvas.skipTargetFind = false;
                     canvas.forEachObject((obj) => {
                         obj.selectable = !isActionBlocked && (userRole === 'tutor' || obj.ownerId === userId);
                     });
@@ -1015,10 +1274,6 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                     fabricHelpers.createPenBrush(canvas, safeColor, brushSize);
                     canvas.isDrawingMode = true;
                     break;
-                // case 'pixel':
-                //     fabricHelpers.createPixelBrush(canvas, safeColor, brushSize);
-                //     canvas.isDrawingMode = true;
-                //     break;
                 case 'eraser':
                     setupEraserTool();
                     break;
@@ -1042,7 +1297,6 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                     break;
                 case 'laser':
                     setupLaserPointer();
-                    // canvas.selection = true;
                     break;
                 case 'image':
                     break;
@@ -1070,6 +1324,7 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
         setupEraserTool();
 
     }, [brushSize, tool, cleanupDrawingListeners, setupEraserTool]);
+
     const handleImageUpload = async (file) => {
         if (!file || !fabricCanvasRef.current) return;
 
@@ -1291,105 +1546,6 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
         saveCanvasState();
     };
 
-    const setupCanvasEventHandlers = () => {
-        const canvas = fabricCanvasRef.current;
-        if (!canvas) return;
-
-        canvas.on('object:added', (e) => {
-            if (isRemoteAction.current || !isConnected || isUndoRedoAction.current) return;
-
-            const object = e.target;
-            if (!object || object.temporary === true || object.excludeFromExport === true) return;
-
-            const action = {
-                type: 'add',
-                objectId: object.id,
-                timestamp: Date.now(),
-                object: object.toJSON(['id', 'ownerId', 'type', 'src'])
-            };
-
-            actionStack.current.push(action);
-            saveStateToStorage();
-
-            if (isConnected) {
-                emit(EVENTS.DRAW_ACTION, createDrawAction(
-                    DRAW_ACTIONS.ADD_OBJECT,
-                    {
-                        json: action.object,
-                        actionId: action.objectId
-                    },
-                    userId,
-                    roomId
-                ));
-            }
-        });
-
-        canvas.on('object:modified', (e) => {
-            if (isRemoteAction.current || !isConnected || isUndoRedoAction.current) return;
-
-            const object = e.target;
-            if (!object || object.temporary === true || object.excludeFromExport === true) return;
-            if (userRole === 'student' && object.ownerId !== userId) return;
-
-            const action = {
-                type: 'modify',
-                objectId: object.id,
-                timestamp: Date.now(),
-                object: object.toJSON(['id', 'ownerId', 'type', 'src'])
-            };
-
-            actionStack.current.push(action);
-            saveStateToStorage();
-
-            if (isConnected) {
-                emit(EVENTS.DRAW_ACTION, createDrawAction(
-                    DRAW_ACTIONS.MODIFY_OBJECT,
-                    {
-                        objectId: object.id,
-                        json: action.object,
-                        actionId: action.objectId
-                    },
-                    userId,
-                    roomId
-                ));
-            }
-        });
-
-        canvas.on('object:removed', (e) => {
-            if (isRemoteAction.current || !isConnected || isUndoRedoAction.current) return;
-
-            const object = e.target;
-            if (!object || object.temporary === true || object.excludeFromExport === true) return;
-            if (userRole === 'student' && object.ownerId !== userId) return;
-
-            const action = {
-                type: 'remove',
-                objectId: object.id,
-                timestamp: Date.now(),
-                object: object.toJSON(['id', 'ownerId', 'type', 'src'])
-            };
-
-            actionStack.current.push(action);
-            saveStateToStorage();
-
-            if (object.id) {
-                processedObjects.current.delete(object.id);
-
-                if (isConnected) {
-                    emit(EVENTS.DRAW_ACTION, createDrawAction(
-                        DRAW_ACTIONS.REMOVE_OBJECT,
-                        {
-                            objectId: object.id,
-                            actionId: action.objectId
-                        },
-                        userId,
-                        roomId
-                    ));
-                }
-            }
-        });
-    };
-
     const clearCanvas = () => {
         const canvas = fabricCanvasRef.current;
         if (!canvas) return;
@@ -1537,7 +1693,7 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
         }
     };
 
-    const handleSaveEquation = (latexEquation) => {
+    const handleSaveEquation = async (latexEquation) => {
         if (!latexEquation.trim()) return;
 
         const canvas = fabricCanvasRef.current;
@@ -1547,69 +1703,77 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
             const tempElement = document.createElement('div');
             tempElement.style.position = 'absolute';
             tempElement.style.left = '-9999px';
-            // tempElement.style.backgroundColor = 'white';
-            // tempElement.style.padding = '20px';
+            tempElement.style.backgroundColor = 'transparent';
+            tempElement.style.padding = '20px';
+            tempElement.style.color = color;
             document.body.appendChild(tempElement);
 
             katex.render(latexEquation, tempElement, {
                 displayMode: true,
                 throwOnError: false,
-                errorColor: '#f44336'
+                errorColor: '#f44336',
+                output: 'html',
+                strict: false,
+                trust: true,
+                macros: {
+                    "\\color": "\\textcolor"
+                }
             });
 
-            html2canvas(tempElement, {
-                backgroundColor: null,
-                // scale: 2,
+            const imgData = await html2canvas(tempElement, {
+                backgroundColor: 'transparent',
+                scale: 2,
                 logging: false
-            }).then(canvas => {
-                const imgData = canvas.toDataURL('image/png');
-                const objectId = `eq_${userId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            }).then(tempCanvas => tempCanvas.toDataURL('image/png'));
 
-                fabric.Image.fromURL(imgData, (img) => {
-                    const id = `equation_${userId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-                    if (!img) {
-                        return;
-                    }
+            const objectId = `eq_${userId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-                    img.set({
-                        left: equationPosition.x,
-                        top: equationPosition.y,
-                        id: objectId,
-                        ownerId: userId,
-                        selectable: true,
-                        equation: latexEquation
-                    });
+            fabric.Image.fromURL(imgData, (img) => {
+                if (!img) return;
 
-                    fabricCanvasRef.current.add(img);
-                    fabricCanvasRef.current.renderAll();
-
-                    processedObjects.current.add(objectId);
-                    processedObjects.current.add(id);
-                    applyPermissions(img);  // Add this line
-
-                    if (isConnected) {
-                        emit(EVENTS.DRAW_ACTION, createDrawAction(
-                            DRAW_ACTIONS.ADD_IMAGE,
-                            {
-                                imageData: imgData,
-                                position: {
-                                    left: equationPosition.x,
-                                    top: equationPosition.y
-                                },
-                                id: objectId,
-                                equation: latexEquation
-                            },
-                            userId,
-                            roomId
-                        ));
-                    }
+                img.set({
+                    left: equationPosition.x,
+                    top: equationPosition.y,
+                    id: objectId,
+                    ownerId: userId,
+                    selectable: true,
+                    evented: true,
+                    equation: latexEquation,
+                    type: 'equation',
+                    crossOrigin: 'anonymous',
+                    color: color
                 });
 
-                document.body.removeChild(tempElement);
-            }).catch(error => {
-                document.body.removeChild(tempElement);
-            });
+                canvas.add(img);
+                processedObjects.current.add(objectId);
+                applyPermissions(img);
+                canvas.renderAll();
+
+                if (isConnected) {
+                    const objectJSON = {
+                        ...img.toJSON(['id', 'ownerId', 'type', 'equation', 'color']),
+                        src: imgData,
+                        left: img.left,
+                        top: img.top,
+                        scaleX: img.scaleX,
+                        scaleY: img.scaleY,
+                        angle: img.angle || 0,
+                        equation: latexEquation, 
+                        color: color
+                    };
+
+                    emit(EVENTS.DRAW_ACTION, createDrawAction(
+                        DRAW_ACTIONS.ADD_OBJECT,
+                        { json: objectJSON },
+                        userId,
+                        roomId
+                    ));
+                }
+            }, { crossOrigin: 'anonymous' });
+
+            document.body.removeChild(tempElement);
         } catch (error) {
+            console.error('Error in handleSaveEquation:', error);
         }
 
         setEquationEditorOpen(false);
@@ -1683,6 +1847,20 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
             return null;
         }
     };
+
+    useEffect(() => {
+        if (!isConnected) return;
+
+        const handleCursorPosition = (data) => {
+            handleRemoteCursor(data);
+        };
+
+        on(EVENTS.CURSOR_POSITION, handleCursorPosition);
+
+        return () => {
+            off(EVENTS.CURSOR_POSITION);
+        };
+    }, [isConnected, on, off]);
 
     return (
         <div className="canvas-container">

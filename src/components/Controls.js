@@ -9,23 +9,59 @@ const Controls = ({ roomId }) => {
     setDarkMode(!darkMode);
   };
   
-  const shareRoom = () => {
+  const shareRoom = async () => {
     const url = window.location.href;
     
-    if (navigator.share) {
-      navigator.share({
-        title: 'Join my TutorTrack Whiteboard',
-        text: 'Join my whiteboard session',
-        url: url
-      });
-    } else {
-      // Fallback to clipboard
-      navigator.clipboard.writeText(url)
-        .then(() => {
-          alert('Room link copied to clipboard!');
-        })
-        .catch(err => {
-        });
+    const copyToClipboard = async (text) => {
+      try {
+        if (navigator?.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+          return true;
+        }
+        
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-999999px';
+        textarea.style.top = '-999999px';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        
+        try {
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+          return true;
+        } catch (err) {
+          document.body.removeChild(textarea);
+          return false;
+        }
+      } catch (err) {
+        return false;
+      }
+    };
+
+    try {
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: 'Join my TutorTrack Whiteboard',
+            text: 'Join my whiteboard session',
+            url: url
+          });
+          return;
+        } catch (err) {
+        }
+      }
+
+      const success = await copyToClipboard(url);
+      if (success) {
+        alert('Room link copied to clipboard!');
+      } else {
+        alert(`Please copy this URL manually:\n${url}`);
+      }
+    } catch (err) {
+      alert(`Please copy this URL manually:\n${url}`);
     }
   };
   

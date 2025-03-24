@@ -232,7 +232,6 @@
   background-color: #444;
 }
 
-/* Responsive adjustments */
 @media (max-width: 768px) {
   .equation-editor {
     width: 95vw;
@@ -244,7 +243,6 @@
   }
 }
 
-/* Add styles for rendered equations on the whiteboard */
 .whiteboard-equation {
   background: transparent;
   padding: 5px;
@@ -260,7 +258,6 @@
   font-size: 1.2em;
 }
 
-/* Make sure the equation text is visible against any background */
 .whiteboard-equation .katex .katex-html {
   color: inherit;
 }
