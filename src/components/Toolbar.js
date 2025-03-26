@@ -106,14 +106,11 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
     const handleColorChange = (newColor) => {
         if (disabled) return;
         setColor(newColor.hex);
+        setShowColorPicker(false); 
     };
 
     const toggleAdvancedColorPicker = () => {
         setAdvancedColorPicker(!advancedColorPicker);
-    };
-
-    const handleCloseColorPicker = () => {
-        setShowColorPicker(false);
     };
 
     const handleFileUpload = (e) => {
@@ -275,26 +272,13 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
                             </button>
                         </Tooltip>
                         {showColorPicker && (
-                            <div 
-                                className={`color-picker-dropdown ${darkMode ? 'dark-mode' : ''}`}
-                                onClick={(e) => e.stopPropagation()}
-                            >
+                            <div className={`color-picker-dropdown ${darkMode ? 'dark-mode' : ''}`}>
                                 {renderSizeControl()}
                                 {advancedColorPicker ? (
                                     <ChromePicker 
                                         color={color} 
                                         onChange={handleColorChange}
                                         disableAlpha={true}
-                                        styles={{
-                                            default: {
-                                                picker: {
-                                                    boxShadow: 'none',
-                                                    border: '1px solid #ddd',
-                                                    background: darkMode ? '#333' : '#fff',
-                                                    color: darkMode ? '#fff' : '#000'
-                                                }
-                                            }
-                                        }}
                                     />
                                 ) : (
                                     <CirclePicker 
@@ -320,26 +304,12 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
                                         ]}
                                     />
                                 )}
-                                <div className="color-picker-actions">
-                                    <button
-                                        className="toggle-picker-button"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            toggleAdvancedColorPicker();
-                                        }}
-                                    >
-                                        {advancedColorPicker ? 'Simple' : 'Advanced'} Colors
-                                    </button>
-                                    <button
-                                        className="close-picker-button"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleCloseColorPicker();
-                                        }}
-                                    >
-                                        Close
-                                    </button>
-                                </div>
+                                <button
+                                    className="toggle-picker-button"
+                                    onClick={toggleAdvancedColorPicker}
+                                >
+                                    {advancedColorPicker ? 'Simple' : 'Advanced'} Colors
+                                </button>
                             </div>
                         )}
                     </div>
