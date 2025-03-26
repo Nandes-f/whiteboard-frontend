@@ -226,6 +226,7 @@
     background: #ddd;
     outline: none;
     border-radius: 2px;
+    
 }
 
 .toolbar.dark-mode .size-control input[type="range"] {
