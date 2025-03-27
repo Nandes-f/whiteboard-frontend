@@ -34,7 +34,8 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
         color,
         brushSize,
         isActionBlocked,
-        setIsActionBlocked
+        setIsActionBlocked,
+        studentPermission
     } = useWhiteboard();
 
     const STORAGE_KEY = `whiteboard_${roomId}_state`;
@@ -382,6 +383,10 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
     }, [isConnected, emit, on, off, roomId, userId, userRole]);
 
     const applyPermissions = (obj) => {
+        const isTutor = userRole === 'tutor';
+        const isStudent = userRole === 'student';
+
+        // If user is blocked (by tutor), restrict all actions
         if (isActionBlocked) {
             obj.selectable = false;
             obj.evented = false;
@@ -393,6 +398,8 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
             return;
         }
 
+        // For both tutors and non-blocked students, give full control
+        if (isTutor || isStudent) {
             obj.selectable = true;
             obj.evented = true;
             obj.lockMovementX = false;
@@ -400,6 +407,7 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
             obj.lockRotation = false;
             obj.lockScalingX = false;
             obj.lockScalingY = false;
+        }
     };
 
     const handleRemoteDrawAction = (action) => {
@@ -416,10 +424,12 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                     if (action.data && action.data.json) {
                         const objectId = action.data.json.id;
 
+                        // Skip if this object was already processed
                         if (processedObjects.current.has(objectId)) {
                             return;
                         }
 
+                        // Remove any existing object with the same ID
                         const existingObj = canvas.getObjects().find(obj => obj.id === objectId);
                         if (existingObj) {
                             canvas.remove(existingObj);
@@ -463,6 +473,35 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                                         roomId
                                     ));
                                 }
+                            }, { crossOrigin: 'anonymous' });
+                        } else if (action.data.json.type === 'image' || action.data.json.type === 'pdf-page') {
+                            // Handle images and PDF pages
+                            fabric.Image.fromURL(action.data.json.src, (img) => {
+                                if (!img) return;
+
+                                // Check if an image with the same ID already exists
+                                const existingImage = canvas.getObjects().find(obj => 
+                                    obj.id === objectId && 
+                                    (obj.type === 'image' || obj.type === 'pdf-page')
+                                );
+
+                                if (existingImage) {
+                                    canvas.remove(existingImage);
+                                    processedObjects.current.delete(objectId);
+                                    }
+
+                                    img.set({
+                                        ...action.data.json,
+                                        ownerId: action.userId,
+                                        selectable: true,
+                                        evented: true,
+                                    crossOrigin: 'anonymous'
+                                    });
+
+                                    canvas.add(img);
+                                    processedObjects.current.add(objectId);
+                                    applyPermissions(img);
+                                    canvas.renderAll();
                                 }, { crossOrigin: 'anonymous' });
                         } else {
                             fabric.util.enlivenObjects([action.data.json], (objects) => {
@@ -506,13 +545,14 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                                         fill: action.data.json.fill
                                     });
                                 } else if (action.data.json.type === 'image' || action.data.json.type === 'pdf-page') {
-                                    // For images, only update position and transformation properties
+                                    // For images, update all properties
                                     existingObj.set({
                                         left: action.data.json.left,
                                         top: action.data.json.top,
                                         scaleX: action.data.json.scaleX,
                                         scaleY: action.data.json.scaleY,
-                                        angle: action.data.json.angle || 0
+                                        angle: action.data.json.angle || 0,
+                                        src: action.data.json.src
                                     });
                         } else {
                                     // Handle other object types
@@ -557,50 +597,136 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
 
                 case DRAW_ACTIONS.UNDO:
                     if (action.data && action.data.state) {
-                        // For any user (tutor or student), only handle their objects
-                        // Remove this user's objects
+                        const canvas = fabricCanvasRef.current;
+                        if (!canvas) return;
+
+                        // Always synchronize the remote state by clearing all existing objects first
                         canvas.getObjects()
-                            .filter(obj => obj.ownerId === action.userId)
-                            .forEach(obj => canvas.remove(obj));
+                            .filter(obj => !obj.temporary && !obj.excludeFromExport)
+                            .forEach(obj => {
+                                processedObjects.current.delete(obj.id);
+                                canvas.remove(obj);
+                            });
                         
-                        // Restore the user's objects from the state
-                        const userObjects = action.data.state.objects.filter(obj => obj.ownerId === action.userId);
-                        
-                        if (userObjects.length > 0) {
-                            fabric.util.enlivenObjects(userObjects, (objects) => {
+                        // Restore objects from the state
+                        if (action.data.state.objects && action.data.state.objects.length > 0) {
+                            fabric.util.enlivenObjects(action.data.state.objects, (objects) => {
                                 objects.forEach(obj => {
                                     if (obj.id) {
                                         processedObjects.current.add(obj.id);
                                     }
+                                    
+                                    // Set object properties based on type
+                                    if (obj.type === 'rect' || obj.type === 'circle' || obj.type === 'line' || obj.type === 'path') {
+                                        obj.set({
+                                            selectable: !isActionBlocked,
+                                            evented: !isActionBlocked,
+                                            stroke: obj.stroke || '#000000',
+                                            strokeWidth: obj.strokeWidth || 2,
+                                            fill: obj.fill || 'transparent',
+                                            left: obj.left,
+                                            top: obj.top,
+                                            width: obj.width,
+                                            height: obj.height,
+                                            radius: obj.radius,
+                                            angle: obj.angle || 0,
+                                            scaleX: obj.scaleX,
+                                            scaleY: obj.scaleY
+                                        });
+                                    } else if (obj.type === 'image' || obj.type === 'pdf-page') {
+                                        obj.set({
+                                            selectable: !isActionBlocked,
+                                            evented: !isActionBlocked,
+                                            crossOrigin: 'anonymous'
+                                        });
+                                    } else {
+                                        obj.set({
+                                            selectable: !isActionBlocked,
+                                            evented: !isActionBlocked
+                                        });
+                                    }
+                                    
                                     canvas.add(obj);
                                 });
-                                canvas.renderAll();
+                                canvas.requestRenderAll();
                             });
+                        } else {
+                            // If state is empty, ensure canvas is cleared again (just to be absolutely sure)
+                            canvas.getObjects()
+                                .filter(obj => !obj.temporary && !obj.excludeFromExport)
+                                .forEach(obj => {
+                                    processedObjects.current.delete(obj.id);
+                                    canvas.remove(obj);
+                                });
+                            canvas.requestRenderAll();
                         }
                     }
                     break;
 
                 case DRAW_ACTIONS.REDO:
                     if (action.data && action.data.state) {
-                        // For any user (tutor or student), only handle their objects
-                        // Remove this user's objects
+                        const canvas = fabricCanvasRef.current;
+                        if (!canvas) return;
+
+                        // Always synchronize the remote state by clearing all existing objects first
                         canvas.getObjects()
-                            .filter(obj => obj.ownerId === action.userId)
-                            .forEach(obj => canvas.remove(obj));
+                            .filter(obj => !obj.temporary && !obj.excludeFromExport)
+                            .forEach(obj => {
+                                processedObjects.current.delete(obj.id);
+                                canvas.remove(obj);
+                            });
                         
-                        // Restore the user's objects from the state
-                        const userObjects = action.data.state.objects.filter(obj => obj.ownerId === action.userId);
-                        
-                        if (userObjects.length > 0) {
-                            fabric.util.enlivenObjects(userObjects, (objects) => {
+                        // Restore objects from the state
+                        if (action.data.state.objects && action.data.state.objects.length > 0) {
+                            fabric.util.enlivenObjects(action.data.state.objects, (objects) => {
                                 objects.forEach(obj => {
                                     if (obj.id) {
                                         processedObjects.current.add(obj.id);
                                     }
+                                    
+                                    // Set object properties based on type
+                                    if (obj.type === 'rect' || obj.type === 'circle' || obj.type === 'line' || obj.type === 'path') {
+                                        obj.set({
+                                            selectable: !isActionBlocked,
+                                            evented: !isActionBlocked,
+                                            stroke: obj.stroke || '#000000',
+                                            strokeWidth: obj.strokeWidth || 2,
+                                            fill: obj.fill || 'transparent',
+                                            left: obj.left,
+                                            top: obj.top,
+                                            width: obj.width,
+                                            height: obj.height,
+                                            radius: obj.radius,
+                                            angle: obj.angle || 0,
+                                            scaleX: obj.scaleX,
+                                            scaleY: obj.scaleY
+                                        });
+                                    } else if (obj.type === 'image' || obj.type === 'pdf-page') {
+                                        obj.set({
+                                            selectable: !isActionBlocked,
+                                            evented: !isActionBlocked,
+                                            crossOrigin: 'anonymous'
+                                        });
+                                    } else {
+                                        obj.set({
+                                            selectable: !isActionBlocked,
+                                            evented: !isActionBlocked
+                                        });
+                                    }
+                                    
                                     canvas.add(obj);
                                 });
-                                canvas.renderAll();
+                                canvas.requestRenderAll();
                             });
+                        } else {
+                            // If state is empty, ensure canvas is cleared again (just to be absolutely sure)
+                            canvas.getObjects()
+                                .filter(obj => !obj.temporary && !obj.excludeFromExport)
+                                .forEach(obj => {
+                                    processedObjects.current.delete(obj.id);
+                                    canvas.remove(obj);
+                                });
+                            canvas.requestRenderAll();
                         }
                     }
                     break;
@@ -627,9 +753,7 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
             obj.isLaserPointer === true
         );
         
-        if (existingPointers.length > 0) {
             existingPointers.forEach(pointer => canvas.remove(pointer));
-        }
 
         const { x, y, color } = data.position;
         const remotePointer = new fabric.Circle({
@@ -648,14 +772,6 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
         });
 
         canvas.add(remotePointer);
-
-        setTimeout(() => {
-            if (remotePointer && remotePointer.canvas) {
-                canvas.remove(remotePointer);
-                canvas.renderAll();
-            }
-        }, 100);
-
         canvas.renderAll();
     };
 
@@ -1065,23 +1181,39 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
 
                         canvas.add(laserPoint);
                         throttledEmit(pointer.x, pointer.y);
-
-                        if (laserPointerTimeout.current) {
-                            clearTimeout(laserPointerTimeout.current);
-                        }
-
-                        laserPointerTimeout.current = setTimeout(() => {
-                            if (laserPoint && laserPoint.canvas) {
-                                canvas.remove(laserPoint);
-                                canvas.renderAll();
-                                laserPoint = null;
-                            }
-                        }, 50);
-
                         canvas.renderAll();
                     } catch (error) {
                         console.error('Error in laser pointer mouse:move:', error);
                     }
+                });
+
+                // Add mouse:down event to show laser pointer when clicking
+                canvas.on('mouse:down', (e) => {
+                    if (isActionBlocked) return;
+                    const pointer = canvas.getPointer(e.e);
+                    
+                    if (laserPoint) {
+                                canvas.remove(laserPoint);
+                                laserPoint = null;
+                            }
+
+                    laserPoint = new fabric.Circle({
+                        left: pointer.x - 5,
+                        top: pointer.y - 5,
+                        radius: 5,
+                        fill: safeColor,
+                        opacity: 0.7,
+                        selectable: false,
+                        evented: false,
+                        originX: 'center',
+                        originY: 'center',
+                        temporary: true,
+                        isLaserPointer: true,
+                        ownerId: userId
+                    });
+
+                    canvas.add(laserPoint);
+                        canvas.renderAll();
                 });
 
                 const handleRemoteCursor = (data) => {
@@ -1115,14 +1247,6 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                     });
 
                     canvas.add(remotePointer);
-
-                    setTimeout(() => {
-                        if (remotePointer && remotePointer.canvas) {
-                            canvas.remove(remotePointer);
-                            canvas.renderAll();
-                        }
-                    }, 100);
-
                     canvas.renderAll();
                 };
 
@@ -1363,7 +1487,9 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
 
                 const object = e.target;
                 if (!object || object.temporary === true || object.excludeFromExport === true) return;
-                if (userRole === 'student' && object.ownerId !== userId) return;
+                
+                // Allow removal if not blocked
+                if (isActionBlocked) return;
 
                 const action = {
                     type: 'remove',
@@ -1412,7 +1538,8 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                     canvas.targetFindTolerance = 4;
                     canvas.skipTargetFind = false;
                     canvas.forEachObject((obj) => {
-                        obj.selectable = !isActionBlocked && (userRole === 'tutor' || obj.ownerId === userId);
+                        // Only restrict if blocked, otherwise allow full control
+                        obj.selectable = !isActionBlocked;
                     });
                     break;
                 case 'pen':
@@ -1634,6 +1761,7 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
 
                             processedObjects.current.add(objectId);
 
+                    // Emit the draw action immediately for both tutor and student
                             if (isConnected) {
                                 const objectToSync = {
                                     ...fabricImg.toObject(['id', 'ownerId']),
@@ -1646,6 +1774,12 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
                                     angle: fabricImg.angle || 0
                                 };
 
+                        // Add the object to the canvas first
+                        canvas.add(fabricImg);
+                        canvas.setActiveObject(fabricImg);
+                        canvas.renderAll();
+
+                        // Then emit the draw action
                                 emit(EVENTS.DRAW_ACTION, createDrawAction(
                                     DRAW_ACTIONS.ADD_OBJECT,
                                     { json: objectToSync },
@@ -1717,17 +1851,45 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
         const canvas = fabricCanvasRef.current;
         if (!canvas || isUndoRedoAction.current) return;
 
-        // Create a simplified state snapshot with just the objects
-        // For students, only save their own objects in history
+        // Create a simplified state snapshot with all objects
         const objects = canvas.getObjects()
-            .filter(obj => !obj.temporary && !obj.excludeFromExport && 
-                   (userRole === 'tutor' ? obj.ownerId === userId : obj.ownerId === userId));
+            .filter(obj => !obj.temporary && !obj.excludeFromExport)
+            .map(obj => {
+                const json = obj.toJSON(['id', 'ownerId', 'type', 'src', 'path', 'equation', 'color']);
+                
+                // Ensure all necessary properties are included for each object type
+                if (obj.type === 'rect' || obj.type === 'circle' || obj.type === 'line' || obj.type === 'path') {
+                    json.stroke = obj.stroke || '#000000';
+                    json.strokeWidth = obj.strokeWidth || 2;
+                    json.fill = obj.fill || 'transparent';
+                    json.left = obj.left;
+                    json.top = obj.top;
+                    json.width = obj.width;
+                    json.height = obj.height;
+                    json.radius = obj.radius;
+                    json.angle = obj.angle || 0;
+                    json.scaleX = obj.scaleX;
+                    json.scaleY = obj.scaleY;
+                    json.selectable = !isActionBlocked;
+                    json.evented = !isActionBlocked;
+                } else if (obj.type === 'image' || obj.type === 'pdf-page') {
+                    json.src = obj.src;
+                    json.crossOrigin = 'anonymous';
+                }
+                
+                return json;
+            });
         
-        if (objects.length === 0) return; // Don't save empty states
+        // Don't save empty states
+        if (objects.length === 0) {
+            // If there's no history yet, add an empty state
+            if (historyStack.current.length === 0) {
+                historyStack.current.push({ objects: [] });
+            }
+            return;
+        }
         
-        const stateSnapshot = {
-            objects: objects.map(obj => obj.toJSON(['id', 'ownerId', 'type', 'src', 'path', 'equation', 'color']))
-        };
+        const stateSnapshot = { objects };
         
         // Don't push duplicate states
         const lastState = historyStack.current.length > 0 ? historyStack.current[historyStack.current.length - 1] : null;
@@ -1759,63 +1921,133 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
 
     const undoAction = () => {
         const canvas = fabricCanvasRef.current;
-        if (!canvas || historyStack.current.length === 0) return;
+        if (!canvas || historyStack.current.length <= 1) return;
 
         isUndoRedoAction.current = true;
         try {
             // Save current state for redo
             const currentObjects = canvas.getObjects()
-                .filter(obj => !obj.temporary && !obj.excludeFromExport && 
-                       (userRole === 'tutor' ? obj.ownerId === userId : obj.ownerId === userId))
-                .map(obj => obj.toJSON(['id', 'ownerId', 'type', 'src', 'path', 'equation', 'color']));
+                .filter(obj => !obj.temporary && !obj.excludeFromExport)
+                .map(obj => {
+                    const json = obj.toJSON(['id', 'ownerId', 'type', 'src', 'path', 'equation', 'color']);
+                    
+                    if (obj.type === 'rect' || obj.type === 'circle' || obj.type === 'line' || obj.type === 'path') {
+                        json.stroke = obj.stroke || '#000000';
+                        json.strokeWidth = obj.strokeWidth || 2;
+                        json.fill = obj.fill || 'transparent';
+                        json.left = obj.left;
+                        json.top = obj.top;
+                        json.width = obj.width;
+                        json.height = obj.height;
+                        json.radius = obj.radius;
+                        json.angle = obj.angle || 0;
+                        json.scaleX = obj.scaleX;
+                        json.scaleY = obj.scaleY;
+                    } else if (obj.type === 'image' || obj.type === 'pdf-page') {
+                        json.src = obj.src;
+                        json.crossOrigin = 'anonymous';
+                    }
+                    
+                    return json;
+                });
             
             if (currentObjects.length > 0) {
                 redoStack.current.push({ objects: currentObjects });
+            } else {
+                redoStack.current.push({ objects: [] });
             }
 
-            // Get previous state
-            const previousState = historyStack.current.pop();
+            // Get previous state (we pop the current state since we already saved it to redoStack)
+            historyStack.current.pop();
+            
+            // The previous state is now at the top of the stack
+            const previousState = historyStack.current[historyStack.current.length - 1];
+            
+            if (!previousState) {
+                // No previous state, clear the canvas
+                canvas.getObjects()
+                    .filter(obj => !obj.temporary && !obj.excludeFromExport)
+                    .forEach(obj => {
+                        processedObjects.current.delete(obj.id);
+                        canvas.remove(obj);
+                    });
+                canvas.requestRenderAll();
+                
+                // Ensure synchronization with empty state
+                if (isConnected) {
+                    emit(EVENTS.DRAW_ACTION, createDrawAction(
+                        DRAW_ACTIONS.UNDO,
+                        { 
+                            state: { objects: [] }
+                        },
+                        userId,
+                        roomId
+                    ));
+                }
+                return;
+            }
 
-            // Remove only the current user's objects (student or tutor)
+            // Clear the canvas first
             canvas.getObjects()
-                .filter(obj => !obj.temporary && !obj.excludeFromExport && obj.ownerId === userId)
+                .filter(obj => !obj.temporary && !obj.excludeFromExport)
                 .forEach(obj => {
                     processedObjects.current.delete(obj.id);
                     canvas.remove(obj);
                 });
-            
-            // Restore only the current user's objects from the previous state
-            if (previousState && previousState.objects && previousState.objects.length > 0) {
-                const userObjects = previousState.objects.filter(obj => obj.ownerId === userId);
-                
-                if (userObjects.length > 0) {
-                    fabric.util.enlivenObjects(userObjects, (objects) => {
+
+            // Restore all objects from the previous state
+            if (previousState.objects && previousState.objects.length > 0) {
+                fabric.util.enlivenObjects(previousState.objects, (objects) => {
                         objects.forEach(obj => {
-                            if (obj.id) {
+                        if (obj.id) {
                             processedObjects.current.add(obj.id);
-                            }
+                        }
+                        
+                        // Set object properties based on type
+                        if (obj.type === 'rect' || obj.type === 'circle' || obj.type === 'line' || obj.type === 'path') {
+                            obj.set({
+                                selectable: !isActionBlocked,
+                                evented: !isActionBlocked,
+                                stroke: obj.stroke || '#000000',
+                                strokeWidth: obj.strokeWidth || 2,
+                                fill: obj.fill || 'transparent',
+                                left: obj.left,
+                                top: obj.top,
+                                width: obj.width,
+                                height: obj.height,
+                                radius: obj.radius,
+                                angle: obj.angle || 0,
+                                scaleX: obj.scaleX,
+                                scaleY: obj.scaleY
+                            });
+                        } else if (obj.type === 'image' || obj.type === 'pdf-page') {
+                            obj.set({
+                                selectable: !isActionBlocked,
+                                evented: !isActionBlocked,
+                                crossOrigin: 'anonymous'
+                            });
+                        } else {
                             obj.set({
                                 selectable: !isActionBlocked,
                                 evented: !isActionBlocked
                             });
-                            canvas.add(obj);
-                        });
+                        }
                         
-                        canvas.requestRenderAll();
+                        canvas.add(obj);
                     });
-                } else {
                     canvas.requestRenderAll();
-                }
+                });
             } else {
+                // Empty state, ensure canvas is cleared
                 canvas.requestRenderAll();
             }
 
+            // Sync with other users
             if (isConnected) {
                 emit(EVENTS.DRAW_ACTION, createDrawAction(
                     DRAW_ACTIONS.UNDO,
                     { 
-                        state: previousState,
-                        userRole: userRole 
+                        state: previousState
                     },
                     userId,
                     roomId
@@ -1834,59 +2066,103 @@ const Canvas = forwardRef(({ roomId, userId, userRole, isConnected, emit, on, of
 
         isUndoRedoAction.current = true;
         try {
-            // Save current state for undo
+            // Get next state
+            const nextState = redoStack.current.pop();
+            if (!nextState || !nextState.objects) return;
+
+            // Save current state to history stack
             const currentObjects = canvas.getObjects()
-                .filter(obj => !obj.temporary && !obj.excludeFromExport && 
-                       (userRole === 'tutor' ? obj.ownerId === userId : obj.ownerId === userId))
-                .map(obj => obj.toJSON(['id', 'ownerId', 'type', 'src', 'path', 'equation', 'color']));
+                .filter(obj => !obj.temporary && !obj.excludeFromExport)
+                .map(obj => {
+                    const json = obj.toJSON(['id', 'ownerId', 'type', 'src', 'path', 'equation', 'color']);
+                    
+                    if (obj.type === 'rect' || obj.type === 'circle' || obj.type === 'line' || obj.type === 'path') {
+                        json.stroke = obj.stroke || '#000000';
+                        json.strokeWidth = obj.strokeWidth || 2;
+                        json.fill = obj.fill || 'transparent';
+                        json.left = obj.left;
+                        json.top = obj.top;
+                        json.width = obj.width;
+                        json.height = obj.height;
+                        json.radius = obj.radius;
+                        json.angle = obj.angle || 0;
+                        json.scaleX = obj.scaleX;
+                        json.scaleY = obj.scaleY;
+                    } else if (obj.type === 'image' || obj.type === 'pdf-page') {
+                        json.src = obj.src;
+                        json.crossOrigin = 'anonymous';
+                    }
+                    
+                    return json;
+                });
             
             if (currentObjects.length > 0) {
                 historyStack.current.push({ objects: currentObjects });
+            } else {
+                historyStack.current.push({ objects: [] });
             }
 
-            // Get next state
-            const nextState = redoStack.current.pop();
-
-            // Remove only the current user's objects (student or tutor)
+            // Clear the canvas first
             canvas.getObjects()
-                .filter(obj => !obj.temporary && !obj.excludeFromExport && obj.ownerId === userId)
+                .filter(obj => !obj.temporary && !obj.excludeFromExport)
                 .forEach(obj => {
                     processedObjects.current.delete(obj.id);
                     canvas.remove(obj);
                 });
-            
-            // Restore only the current user's objects from the next state
-            if (nextState && nextState.objects && nextState.objects.length > 0) {
-                const userObjects = nextState.objects.filter(obj => obj.ownerId === userId);
-                
-                if (userObjects.length > 0) {
-                    fabric.util.enlivenObjects(userObjects, (objects) => {
+
+            // Restore all objects from the next state
+            if (nextState.objects && nextState.objects.length > 0) {
+                fabric.util.enlivenObjects(nextState.objects, (objects) => {
                         objects.forEach(obj => {
-                            if (obj.id) {
+                        if (obj.id) {
                             processedObjects.current.add(obj.id);
-                            }
+                        }
+                        
+                        // Set object properties based on type
+                        if (obj.type === 'rect' || obj.type === 'circle' || obj.type === 'line' || obj.type === 'path') {
+                            obj.set({
+                                selectable: !isActionBlocked,
+                                evented: !isActionBlocked,
+                                stroke: obj.stroke || '#000000',
+                                strokeWidth: obj.strokeWidth || 2,
+                                fill: obj.fill || 'transparent',
+                                left: obj.left,
+                                top: obj.top,
+                                width: obj.width,
+                                height: obj.height,
+                                radius: obj.radius,
+                                angle: obj.angle || 0,
+                                scaleX: obj.scaleX,
+                                scaleY: obj.scaleY
+                            });
+                        } else if (obj.type === 'image' || obj.type === 'pdf-page') {
+                            obj.set({
+                                selectable: !isActionBlocked,
+                                evented: !isActionBlocked,
+                                crossOrigin: 'anonymous'
+                            });
+                        } else {
                             obj.set({
                                 selectable: !isActionBlocked,
                                 evented: !isActionBlocked
                             });
-                            canvas.add(obj);
-                        });
+                        }
                         
-                        canvas.requestRenderAll();
+                        canvas.add(obj);
                     });
-                } else {
                     canvas.requestRenderAll();
-                }
+                });
             } else {
+                // Empty state, ensure canvas is cleared
                 canvas.requestRenderAll();
             }
 
+            // Sync with other users
             if (isConnected) {
                 emit(EVENTS.DRAW_ACTION, createDrawAction(
                     DRAW_ACTIONS.REDO,
                     { 
-                        state: nextState,
-                        userRole: userRole
+                        state: nextState
                     },
                     userId,
                     roomId

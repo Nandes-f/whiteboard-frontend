@@ -34,14 +34,16 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
         setBrushSize,
         availableTools,
         userRole,
-        darkMode 
+        darkMode
     } = useWhiteboard();
 
     const [showColorPicker, setShowColorPicker] = useState(false);
     const [advancedColorPicker, setAdvancedColorPicker] = useState(false);
     const colorPickerRef = useRef(null);
     const toolbarRef = useRef(null);
+    const colorButtonRef = useRef(null);
     const fileInputRef = useRef(null);
+
     const handleClear = () => {
         if (onClear) {
             try {
@@ -54,10 +56,21 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
 
     useEffect(() => {
         const handleClickOutside = (event) => {
-            if (colorPickerRef.current && !colorPickerRef.current.contains(event.target) &&
-                toolbarRef.current && !toolbarRef.current.querySelector('.color-button').contains(event.target)) {
-                setShowColorPicker(false);
+            // Check if the click is inside the color picker container, color button, or any color picker component
+            const isColorPickerClick = colorPickerRef.current?.contains(event.target);
+            const isColorButtonClick = colorButtonRef.current?.contains(event.target);
+            const isToggleButtonClick = event.target.classList.contains('toggle-picker-button');
+            const isChromePickerClick = event.target.closest('.chrome-picker');
+            const isCirclePickerClick = event.target.closest('.circle-picker');
+            const isChromePickerContainerClick = event.target.closest('.chrome-picker-container');
+
+            // Don't close if clicking inside any of these elements
+            if (isColorPickerClick || isColorButtonClick || isToggleButtonClick ||
+                isChromePickerClick || isCirclePickerClick || isChromePickerContainerClick) {
+                return;
             }
+
+            setShowColorPicker(false);
         };
 
         document.addEventListener('mousedown', handleClickOutside);
@@ -106,11 +119,6 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
     const handleColorChange = (newColor) => {
         if (disabled) return;
         setColor(newColor.hex);
-        setShowColorPicker(false); 
-    };
-
-    const toggleAdvancedColorPicker = () => {
-        setAdvancedColorPicker(!advancedColorPicker);
     };
 
     const handleFileUpload = (e) => {
@@ -120,7 +128,7 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
         if (!file) return;
 
         onUpload(file);
-        e.target.value = null; 
+        e.target.value = null;
     };
 
     const renderSizeControl = () => {
@@ -169,6 +177,86 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
                         >
                             <FaPencilAlt />
                         </button>
+                    </Tooltip>
+                    <Tooltip content="Color" direction="bottom">
+                        <div className="color-picker-container" ref={colorPickerRef}>
+                            <button
+                                ref={colorButtonRef}
+                                className="color-button"
+                                onClick={() => setShowColorPicker(!showColorPicker)}
+                                disabled={disabled}
+                            >
+                                <div className="color-preview" style={{ backgroundColor: color }}></div>
+                            </button>
+                            {showColorPicker && (
+                                <div className={`color-picker-dropdown ${darkMode ? 'dark-mode' : ''}`}>
+                                    {renderSizeControl()}
+                                    {advancedColorPicker ? (
+                                        <div
+                                            className="chrome-picker-container"
+                                            onClick={(e) => e.stopPropagation()}
+                                            onMouseDown={(e) => e.stopPropagation()}
+                                        >
+                                            <ChromePicker
+                                                color={color}
+                                                onChange={handleColorChange}
+                                                disableAlpha={true}
+                                                styles={{
+                                                    default: {
+                                                        picker: {
+                                                            position: 'relative',
+                                                            zIndex: 1003
+                                                        }
+                                                    }
+                                                }}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div
+                                            className="circle-picker-container"
+                                            onClick={(e) => e.stopPropagation()}
+                                            onMouseDown={(e) => e.stopPropagation()}
+                                        >
+                                            <CirclePicker
+                                                color={color}
+                                                onChange={handleColorChange}
+                                                colors={[
+                                                    '#FF0000', // Red
+                                                    '#00FF00', // Green
+                                                    '#0000FF', // Blue
+                                                    '#FF00FF', // Magenta
+                                                    '#00FFFF', // Cyan
+                                                    '#FFFF00', // Yellow
+                                                    '#000000', // Black
+                                                    '#333333', // Dark Gray
+                                                    '#666666', // Medium Gray
+                                                    '#FFB6C1', // Light Pink
+                                                    '#98FB98', // Pale Green
+                                                    '#87CEEB', // Sky Blue
+                                                    '#FFA500', // Orange
+                                                    '#FF4500', // Orange Red
+                                                    '#FFD700', // Gold
+                                                    '#4169E1', // Royal Blue
+                                                    '#9370DB', // Medium Purple
+                                                    '#20B2AA'  // Light Sea Green
+                                                ]}
+                                            />
+                                        </div>
+                                    )}
+                                    <button
+                                        className="toggle-picker-button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            e.preventDefault();
+                                            setAdvancedColorPicker(!advancedColorPicker);
+                                        }}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                    >
+                                        {advancedColorPicker ? 'Simple' : 'Advanced'} Colors
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                     </Tooltip>
                     <Tooltip content="Eraser" direction="bottom">
                         <button
@@ -258,65 +346,7 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
                         accept="image/*,.pdf"
                         onChange={handleFileUpload}
                     />
-                </div>
 
-                <div className="tool-section">
-                    <div className="color-picker-container" ref={colorPickerRef}>
-                        <Tooltip content="Color" direction="bottom">
-                            <button
-                                className="color-button"
-                                onClick={() => setShowColorPicker(!showColorPicker)}
-                                disabled={disabled}
-                            >
-                                <div className="color-preview" style={{ backgroundColor: color }}></div>
-                            </button>
-                        </Tooltip>
-                        {showColorPicker && (
-                            <div className={`color-picker-dropdown ${darkMode ? 'dark-mode' : ''}`}>
-                                {renderSizeControl()}
-                                {advancedColorPicker ? (
-                                    <ChromePicker 
-                                        color={color} 
-                                        onChange={handleColorChange}
-                                        disableAlpha={true}
-                                    />
-                                ) : (
-                                    <CirclePicker 
-                                        color={color} 
-                                        onChange={handleColorChange}
-                                        colors={[
-                                            '#000000',
-                                            '#434343',
-                                            '#666666',
-                                            '#999999', 
-                                            '#B3B3B3', 
-                                            '#CCCCCC', 
-                                            '#FF0000',
-                                            '#00FF00', 
-                                            '#0000FF', 
-                                            '#FFFF00', 
-                                            '#FF00FF', 
-                                            '#00FFFF', 
-                                            '#FFA500', 
-                                            '#800080', 
-                                            '#008000', 
-                                            '#000080'  
-                                        ]}
-                                    />
-                                )}
-                                <button
-                                    className="toggle-picker-button"
-                                    onClick={toggleAdvancedColorPicker}
-                                >
-                                    {advancedColorPicker ? 'Simple' : 'Advanced'} Colors
-                                </button>
-                            </div>
-                        )}
-                    </div>
-
-                </div>
-
-                <div className="tool-section">
                     <Tooltip content="Undo" direction="bottom">
                         <button
                             className="tool-button"
@@ -361,6 +391,8 @@ const Toolbar = ({ onClear, onSave, onUndo, onRedo, onUpload, onLeave, disabled 
                         </button>
                     </Tooltip>
                 </div>
+
+
             </div>
         </div>
     );
